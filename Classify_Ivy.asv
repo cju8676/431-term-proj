@@ -67,10 +67,12 @@ function Classify_Ivy( filename )
     % for now get the cluster with the highest green value
     % this most likely will not work with multiple green clusters (aka one
     % picked up from background)
-    [rgb_max, rgb_idx] = max(centers_colors);
-    im_new_leaf = (im_new == rgb_idx(2));
-    figure;
-    imagesc(im_new_leaf);
-    colormap("gray");
+    
+    % green channel of centers colors
+    green = centers_colors(:,:,2);
+    display(green);
+
+    
+
 
 end
