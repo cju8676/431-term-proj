@@ -27,7 +27,7 @@ function Classify_Ivy( filename )
     im_leaf_center(:,:,1) = im(:,:,1).*mask;
     im_leaf_center(:,:,2) = im(:,:,2).*mask;
     im_leaf_center(:,:,3) = im(:,:,3).*mask;
-    imshow(im_leaf_center);
+%     imshow(im_leaf_center);
 
     % kmeans takes way too long on the full resolution image
     im_smaller = im_leaf_center( 3:3:end, 3:3:end, : );
@@ -69,8 +69,35 @@ function Classify_Ivy( filename )
     % picked up from background)
     [rgb_max, rgb_idx] = max(centers_colors);
     im_new_leaf = (im_new == rgb_idx(2));
+    
+    % Disk structuring element
+    disk = strel('disk', 5);
+    % Get rid of black specs on leaf
+    im_dilate_leaf = imdilate(im_new_leaf, disk);
+    % Make sure objects picked up are separated enough
+    im_final_morph = imerode(im_dilate_leaf, disk);
+    % Label and get number of our different blobs - 4 pixel connectivity
+    [L, n] = bwlabel(im_final_morph, 4);
+    display(n);
+    
+    im_final_preprocessed = zeros(size(im_final_morph));
+    % loop through discovered blobs
+    for d = 1 : n
+        
+        this_blob = (L == d);
+        
+        stats = regionprops(this_blob, 'all');
+        display(stats);
+        if stats.Area < 10000
+            continue;
+        end
+        im_final_preprocessed = im_final_preprocessed | this_blob;
+        imagesc(this_blob);
+        pause(2);
+    end
+    
     figure;
-    imagesc(im_new_leaf);
+    imagesc(im_final_preprocessed);
     colormap("gray");
 
 end

@@ -27,7 +27,7 @@ function Classify_Ivy( filename )
     im_leaf_center(:,:,1) = im(:,:,1).*mask;
     im_leaf_center(:,:,2) = im(:,:,2).*mask;
     im_leaf_center(:,:,3) = im(:,:,3).*mask;
-    imshow(im_leaf_center);
+%     imshow(im_leaf_center);
 
     % kmeans takes way too long on the full resolution image
     im_smaller = im_leaf_center( 3:3:end, 3:3:end, : );
@@ -67,12 +67,20 @@ function Classify_Ivy( filename )
     % for now get the cluster with the highest green value
     % this most likely will not work with multiple green clusters (aka one
     % picked up from background)
+    [rgb_max, rgb_idx] = max(centers_colors);
+    im_new_leaf = (im_new == rgb_idx(2));
     
-    % green channel of centers colors
-    green = centers_colors(:,:,2);
-    display(green);
+    % Disk structuring element
+    disk = strel('disk', 5);
+    % Get rid of black specs on leaf
+    im_dilate_leaf = imdilate(im_new_leaf, disk);
+    % Label and get number of our different blobs - 4 pixel connectivity
+    [L, n] = bwlabel(im_dilate_leaf, 4);
 
     
-
+    
+    figure;
+    imagesc(im_dilate_leaf);
+    colormap("gray");
 
 end
