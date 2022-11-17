@@ -41,51 +41,47 @@ function Classify_Ivy( filename )
     figure;
     imagesc(im_smaller_sat);
 
+    % unsharp masking filter - enhance sharpness of leaf vs. blur before we
+    % go looking for strong edges
+    im_sat_sharp = imsharpen(im_smaller_sat);
+
     % edge filter
     fltr_dIdy       = [ -1  -2  -3  -2  -1 ;
-                     0   0   0   0   0 ;
-                     0   0   0   0   0 ;
-                     0   0   0   0   0 ;
-                    +1  +2  +3  +2  +1 ] / (4*9);   
+                         0   0   0   0   0 ;
+                         0   0   0   0   0 ;
+                         0   0   0   0   0 ;
+                        +1  +2  +3  +2  +1 ] / (4*9);  
 
     % image a* - we want to find significant edges in this domain
-    im_sat_lab = rgb2lab(im_smaller_sat);
+    im_sat_lab = rgb2lab(im_sat_sharp);
     im_sat_a = im_sat_lab(:,:,2);
     figure;
+    imagesc(im_sat_sharp);
     imagesc(im_sat_a);
     dIdy = imfilter( im_sat_a, fltr_dIdy, 'same', 'repl' );
     dIdx = imfilter( im_sat_a, fltr_dIdy.', 'same', 'replicate');
+    dImag           = sqrt( dIdy.^2  + dIdx.^2 );
     figure;
     imagesc(dIdx);
     imagesc(dIdy);
+    imagesc(dImag);
 %     dIangle         = atan2( -dIdy, dIdx ) * 180 / pi;
 
 
 
-    b_im_edges_horiz     = ( dIdy         < -4 ) | ( dIdx < -4);
+%     b_im_edges_horiz     = ( dIdy         < -1 ) | ( dIdx < -1);
+    b_im_edges_horiz = ( dImag > 5 );
+    imagesc(b_im_edges_horiz);
     b_dil = imdilate(b_im_edges_horiz, strel('disk', 5));
+    b_fill = imfill(b_dil, 'holes');
+    b_fill = imdilate(b_fill, strel('disk', 5));
+    figure;
+    imagesc(b_fill);
+    im_cropped_sat = im_smaller_sat.*repmat(b_fill,[1,1,3]);
 
-    % if theres a b_dil point between a given pixel and the center point
-    % then remove it - consider it outside of our leaf boundary
-    sat_size = size(im_smaller_sat);
-    sat_center = round( sat_size( 1:2 ) / 2 );
-    im_finalized_sat = zeros(size(im_smaller_sat));
-    % loop through pixels in our image
-    for row = 1 : size(im_smaller_sat, 1)
-        for col = 1: size(im_smaller_sat, 2)
-            % skip already blacked out pixels for efficiency --------------
-            x1 = [row, col];
-            % get line between pixel and center - y=mx + b form
-            mb = [[1; 1] x1(:)]\sat_center(:);
-            pause(1);
-            % are there any 1's in b_dil on that line?
-            % if so continue
-            % if not then add to finalized
-        end
-    end
 
     % Convert our image to CIELAB 
-    im_lab = rgb2lab(im_smaller_sat);
+    im_lab = rgb2lab(im_cropped_sat);
 
     % Store luminance, a*, and b* values to be used for k-means
     lum = im_lab(:,:,1);

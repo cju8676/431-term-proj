@@ -47,10 +47,10 @@ function Classify_Ivy( filename )
 
     % edge filter
     fltr_dIdy       = [ -1  -2  -3  -2  -1 ;
-                     0   0   0   0   0 ;
-                     0   0   0   0   0 ;
-                     0   0   0   0   0 ;
-                    +1  +2  +3  +2  +1 ] / (4*9);   
+                         0   0   0   0   0 ;
+                         0   0   0   0   0 ;
+                         0   0   0   0   0 ;
+                        +1  +2  +3  +2  +1 ] / (4*9);  
 
     % image a* - we want to find significant edges in this domain
     im_sat_lab = rgb2lab(im_sat_sharp);
@@ -60,23 +60,28 @@ function Classify_Ivy( filename )
     imagesc(im_sat_a);
     dIdy = imfilter( im_sat_a, fltr_dIdy, 'same', 'repl' );
     dIdx = imfilter( im_sat_a, fltr_dIdy.', 'same', 'replicate');
+    dImag           = sqrt( dIdy.^2  + dIdx.^2 );
     figure;
     imagesc(dIdx);
     imagesc(dIdy);
+    imagesc(dImag);
 %     dIangle         = atan2( -dIdy, dIdx ) * 180 / pi;
 
 
 
-    b_im_edges_horiz     = ( dIdy         < -8 ) | ( dIdx < -8);
-    b_dil = imdilate(b_im_edges_horiz, strel('disk', 100));
-    imagesc(b_dil);
-    im_smaller_sat(:,:,1) = im_smaller_sat(:,:,1).*b_dil;
-    im_smaller_sat(:,:,2) = im_smaller_sat(:,:,2).*b_dil;
-    im_smaller_sat(:,:,3) = im_smaller_sat(:,:,3).*b_dil;
-    imagesc(im_smaller_sat);
+%     b_im_edges_horiz     = ( dIdy         < -1 ) | ( dIdx < -1);
+    b_im_edges_horiz = ( dImag > 3 );
+    imagesc(b_im_edges_horiz);
+    b_dil = imdilate(b_im_edges_horiz, strel('disk', 7));
+    b_fill = imfill(b_dil, 'holes');
+    b_fill = imdilate(b_fill, strel('disk', 5));
+    figure;
+    imagesc(b_fill);
+    im_cropped_sat = im_smaller_sat.*repmat(b_fill,[1,1,3]);
+
 
     % Convert our image to CIELAB 
-    im_lab = rgb2lab(im_smaller_sat);
+    im_lab = rgb2lab(im_cropped_sat);
 
     % Store luminance, a*, and b* values to be used for k-means
     lum = im_lab(:,:,1);
@@ -180,9 +185,6 @@ function Classify_Ivy( filename )
 %         pause(2);
     end
     
-
-        
-    % if leaf != 3 leaves, !ivy
     
     % separate 
     dims_pre = size(im_final_preprocessed);
@@ -214,7 +216,7 @@ function Classify_Ivy( filename )
         stats = regionprops(this_clus, 'all');
         display(stats);
 %         pause(2);
-        if stats.Area < 12000
+        if stats.Area < 2000
             continue
         end
         im_clus_after_mid = im_clus_after_mid | this_clus;
@@ -228,7 +230,8 @@ function Classify_Ivy( filename )
 
     [leaf_clus, final_num_leaves] = bwlabel(im_clus_after_mid, 4);
     if final_num_leaves ~= 3
-        fprintf("NOT POISON IVY\n");
+        fprintf("Not 3 Leaves = NOT POISON IVY!\n");
+        return;
     else
         fprintf("3 leaves detected.\n");
     end
@@ -242,8 +245,16 @@ function Classify_Ivy( filename )
     colormap("gray");
     hold on;
     plot(corners);
-    % its going to have 2 strong corners that should be ommitted due to the
-    % circle we created in the center
+    % disclude the corners generated from the middle circle
+    num_corners = corners.Count - 6;
+    % average number of corners among the 3 leaves
+    avg_corners = num_corners / 3 ;
+    
+    if avg_corners > 7
+        fprintf("NOT POISON IVY\n");
+    else
+        fprintf("Poison Ivy detected!\n");
+    end
 
 
     
