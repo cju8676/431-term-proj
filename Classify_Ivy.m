@@ -66,17 +66,22 @@ function class = Classify_Ivy( filename )
     
         % Extract hue, saturation, and value HSV channels
         hsv = rgb2hsv( im );
-        sat = hsv(:,:,2);
+        hue = hsv(:,:,1);
+        % sat = hsv(:,:,2);
         val = hsv(:,:,3);
 
         % Extract Cr value from YCbCr space that also seems to help well in
         % isolating the leaf from its background
         ycbcr = rgb2ycbcr(im);
         cr = ycbcr(:,:,3);
+
+        % plot_three_channels(im_lab);
+        % plot_three_channels(hsv);
+        % plot_three_channels(ycbcr);
         
         % Attributes input to k-means, utilizing the channels from above as
         % our input attributes
-        attributes = [sat(:), val(:), lum(:), a_star(:), b_star(:), cr(:)];
+        attributes = [hue(:), val(:), lum(:), a_star(:), b_star(:), cr(:)];
 
         % Perform kmeans clustering on image returning k clusters
         [cluster_id, centers] = kmeans(attributes, k, 'MaxIter',250);
@@ -225,21 +230,37 @@ function class = Classify_Ivy( filename )
     end
 
     % if we are left with 3 leaves, it is most likely poision ivy
-    [leaf_clus, final_num_leaves] = bwlabel(im_clus_after_mid, 4);
-    if final_num_leaves ~= 3
-%         fprintf("Not 3 Leaves = NOT POISON IVY!\n");
+    leaf = imfill(im_final_preprocessed, 'holes');
+    im_skel = bwmorph(leaf, 'skel', Inf);
+    im_skel(:,:) = im_skel(:,:).*~circle_mask(im_final_preprocessed, 5);
+    [skel_clus, skel_num] = bwlabel(im_skel, 8);
+    imagesc(im_skel);
+
+    % count how many skel we have
+    skel_count = 0;
+    for d = 1 : skel_num
+        this_clus = (skel_clus == d);
+        stats = regionprops(this_clus, 'all');
+        display(stats);
+        if stats.Area < 300
+            continue
+        end
+        skel_count = skel_count + 1;
+    end
+    if skel_count ~= 3
+        fprintf("Not 3 Leaves = NOT POISON IVY!\n");
         class = false;
         return;
     else
-%         fprintf("3 leaves detected.\n");
+        fprintf("3 leaves detected.\n");
         class = true;
     end
 
     % if each leaf has only 1-2 thumbs (corners), ivy
     
 %     im_leaf_edges = (b_im_edges_horiz & im_clus_after_mid);
-    leaf = imfill(im_final_preprocessed, 'holes');
     
+    imagesc(leaf);
     % harris corners on final preprocessed
 %     corners = detectHarrisFeatures(im_clus_after_mid, 'MinQuality',0.3);
 %     imagesc(im_clus_after_mid);
