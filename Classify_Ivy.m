@@ -1,10 +1,68 @@
 % Term Project
 % CSCI: 431 - Computer Vision
 % Fall 2022
-function Classify_Ivy( filename )
+function class = Classify_Ivy( filename )
 
     addpath('./IMAGES_OTHER_PLANTS/');
     addpath('./IMAGES_of_POISON_IVY/');
+
+    % three channel subplot helper function
+    function plot_three_channels( im )
+
+        figure;
+        subplot(2, 2, 1);
+        imagesc(im);
+        title("Original");
+        subplot(2, 2, 2);
+        imagesc(im(:,:,1));
+        title("Channel 1");
+        subplot(2, 2, 3);
+        imagesc(im(:,:,2));
+        title("Channel 2");
+        subplot(2, 2, 4);
+        imagesc(im(:,:,3));
+        title("Channel 3");
+
+    end
+
+    function [cluster_id, centers] = do_kmeans( im, k )
+
+        % row vectors, column vectors of our image - tells us where a pixel is
+        [xs, ys] = meshgrid( 1:s_dims(1), 1:s_dims(2) );
+        
+        % Convert our image to CIELAB 
+        im_lab = rgb2lab( im );
+    
+        % Store luminance, a*, and b* values to be used for k-means
+        lum = im_lab(:,:,1);
+        a_star = im_lab(:,:,2);
+        b_star = im_lab(:,:,3);
+    
+        hsv = rgb2hsv( im );
+        sat = hsv(:,:,2);
+        val = hsv(:,:,3);
+%         plot_three_channels(hsv);
+%         plot_three_channels(im_lab);
+%         plot_three_channels(rgb2ycbcr(im));
+        ycbcr = rgb2ycbcr;
+        cr = ycbcr(:,:,3);
+        
+        % Attributes input to k-means, space variables weighted by 1/15
+%         attributes = [xs(:)/10, ys(:)/10, lum(:), a_star(:), b_star(:)];
+%         if location_focused
+%             attributes = [a_star(:), val(:), sat(:)];
+%         else
+        attributes = [sat(:), val(:), lum(:), a_star(:), b_star(:), cr(:)];
+%         end
+        % Perform kmeans clustering on image
+        [cluster_id, centers] = kmeans(attributes, k, 'MaxIter',250);
+    
+
+    end
+
+    
+
+    
 
     % read in image
     im = ( imread( filename ) );
@@ -28,19 +86,19 @@ function Classify_Ivy( filename )
 %     figure;
 %     imagesc(im_leaf_center);
 
-    % kmeans takes way too long on the full resolution image
+% kmeans takes way too long on the full resolution image
     im_smaller = im_leaf_center( 3:3:end, 3:3:end, : );
-    s_dims = size(im_smaller);
-    % row vectors, column vectors of our image - tells us where a pixel is
-    [xs, ys] = meshgrid( 1:s_dims(1), 1:s_dims(2) );
+    
+
+    
 
     im_smaller_hsv = rgb2hsv(im_smaller);
     % 75% more saturation:
     im_smaller_hsv(:, :, 2) = im_smaller_hsv(:, :, 2) * 1.75;
     im_smaller_sat = hsv2rgb(im_smaller_hsv);
-    figure;
-    imagesc(im_smaller_sat);
-
+%     figure;
+%     imagesc(im_smaller_sat);
+    
     % unsharp masking filter - enhance sharpness of leaf vs. blur before we
     % go looking for strong edges
     im_sat_sharp = imsharpen(im_smaller_sat);
@@ -55,59 +113,39 @@ function Classify_Ivy( filename )
     % image a* - we want to find significant edges in this domain
     im_sat_lab = rgb2lab(im_sat_sharp);
     im_sat_a = im_sat_lab(:,:,2);
-    figure;
-    imagesc(im_sat_sharp);
-    imagesc(im_sat_a);
+%     figure;
+%     imagesc(im_sat_sharp);
+%     imagesc(im_sat_a);
     dIdy = imfilter( im_sat_a, fltr_dIdy, 'same', 'repl' );
     dIdx = imfilter( im_sat_a, fltr_dIdy.', 'same', 'replicate');
     dImag           = sqrt( dIdy.^2  + dIdx.^2 );
-    figure;
-    imagesc(dIdx);
-    imagesc(dIdy);
-    imagesc(dImag);
+%     figure;
+%     imagesc(dIdx);
+%     imagesc(dIdy);
+%     imagesc(dImag);
 %     dIangle         = atan2( -dIdy, dIdx ) * 180 / pi;
 
 
 
-%     b_im_edges_horiz     = ( dIdy         < -1 ) | ( dIdx < -1);
+    b_im_edges_horiz     = ( dIdy         < -1 ) | ( dIdx < -1);
     b_im_edges_horiz = ( dImag > 3 );
-    imagesc(b_im_edges_horiz);
+%     imagesc(b_im_edges_horiz);
     b_dil = imdilate(b_im_edges_horiz, strel('disk', 7));
     b_fill = imfill(b_dil, 'holes');
     b_fill = imdilate(b_fill, strel('disk', 5));
-    figure;
-    imagesc(b_fill);
+%     figure;
+%     imagesc(b_fill);
     im_cropped_sat = im_smaller_sat.*repmat(b_fill,[1,1,3]);
-
-
-    % Convert our image to CIELAB 
-    im_lab = rgb2lab(im_cropped_sat);
-
-    % Store luminance, a*, and b* values to be used for k-means
-    lum = im_lab(:,:,1);
-    a_star = im_lab(:,:,2);
-    b_star = im_lab(:,:,3);
     
-    % Attributes input to k-means, space variables weighted by 1/15
-    attributes = [xs(:)/10, ys(:)/10, lum(:), a_star(:), b_star(:)];
-    % Timer Start
-    tic;
-    % Perform kmeans clustering on image
-    [cluster_id, centers] = kmeans(attributes, 8, 'MaxIter',250);
-    % Timer Stop
-    toc;
-
-    % Show our resulting clustered image by reshaping the clusters we got
-    % from k-means
-    figure;
-    im_new = reshape(cluster_id, s_dims(1), s_dims(2));
-    imagesc(im_new);
+    [cluster_id, centers] = do_kmeans( im_sat_sharp, 7 );
     centers_colors = lab2rgb(centers(:,3:5));
-    colormap(centers_colors);
-%         title("Clustered Image - k = 5, wt = 1/15")
-    colorbar;
-    drawnow;
-    axis image;
+    diiims = size( im_sat_sharp );
+    im_new = reshape(cluster_id, diiims(1), diiims(2));
+%     figure;
+%     imagesc(im_new);
+        
+    %     colormap(centers_colors);
+    
 
     % get all clusters with a* significantly negative
     new_cen = [centers(:, 1)*10 centers(:, 2)*10 centers(:, 3) centers(:, 4) centers(:, 5)];
@@ -156,7 +194,7 @@ function Classify_Ivy( filename )
     im_final_morph = imerode(im_dilate_leaf, disk);
     % Label and get number of our different blobs - 4 pixel connectivity
     [L, n] = bwlabel(im_final_morph, 4);
-    display(n);
+%     display(n);
     
     im_final_preprocessed = zeros(size(im_final_morph));
     % loop through discovered blobs
@@ -169,22 +207,25 @@ function Classify_Ivy( filename )
         if stats.Area < 10000
             continue;
         end
-        display(stats);
+%         display(stats);
         % BoundingBox = [left, top, width height]
-        blob_wid = stats.BoundingBox(3);
-        blob_hei = stats.BoundingBox(4);
-        
-%             corners = detectHarrisFeatures(this_blob, 'MinQuality', 0.5);
-%             figure;
-%             display(corners);
+        % blob_wid = stats.BoundingBox(3);
+        % blob_hei = stats.BoundingBox(4);
         
         im_final_preprocessed = im_final_preprocessed | this_blob;
-        imagesc(this_blob);
-        hold on;
-%             plot(corners.selectStrongest(50));
-%         pause(2);
+%         imagesc(this_blob);
     end
-    
+    figure;
+    imagesc(im_final_preprocessed);
+    title(filename);
+    colormap('gray');
+%     leaf = im_smaller_sat.*repmat(imfill(im_final_preprocessed, 'holes'), [1, 1, 3]);
+%     [cl, ce] = do_kmeans(leaf, 3, true);
+%     im_new = reshape(cl, diiims(1), diiims(2));
+%     figure;
+%     imagesc(im_new);
+
+    % ___________________________end of preprocessing
     
     % separate 
     dims_pre = size(im_final_preprocessed);
@@ -197,67 +238,62 @@ function Classify_Ivy( filename )
     % get the pixels inside the circle radius ci(3)
     mask = ~uint8((smallx.^2 + smally.^2) < small_ci(3)^2);
     im_sep_middle = (zeros(size(im_final_preprocessed)));
-    % mask each of our rgb channels
+    % mask 
     im_sep_middle(:,:) = im_final_preprocessed(:,:).*mask;
-%     im_sep_middle(:,:,2) = im_final_preprocessed(:,:,2).*mask;
-%     im_sep_middle(:,:,3) = im_final_preprocessed(:,:,3).*mask;
     
-    figure;
-    imagesc(im_sep_middle);
+%     figure;
+%     imagesc(im_sep_middle);
 
     % once again pick apart clusters and discard any small area clusters
     % like stems
     [clus, num] = bwlabel(im_sep_middle, 4);
     im_clus_after_mid = zeros(size(im_final_preprocessed));
-    figure;
+%     figure;
     for d = 1 : num
         this_clus = (clus == d);
-        imagesc(this_clus);
+%         imagesc(this_clus);
         stats = regionprops(this_clus, 'all');
-        display(stats);
+%         display(stats);
 %         pause(2);
-        if stats.Area < 2000
+        if stats.Area < 12000
             continue
         end
         im_clus_after_mid = im_clus_after_mid | this_clus;
     end
-    % skeletonize
-%     imagesc(im_clus_after_mid);
-%     colormap("gray");
-%     im_skel = bwmorph(im_clus_after_mid, "skeleton", 20);
-%     figure;
-%     imagesc(im_skel);
-
+    imagesc(im_clus_after_mid);
+    % if 
     [leaf_clus, final_num_leaves] = bwlabel(im_clus_after_mid, 4);
     if final_num_leaves ~= 3
-        fprintf("Not 3 Leaves = NOT POISON IVY!\n");
+%         fprintf("Not 3 Leaves = NOT POISON IVY!\n");
+        class = false;
         return;
     else
-        fprintf("3 leaves detected.\n");
+%         fprintf("3 leaves detected.\n");
+        class = true;
     end
 
     % if each leaf has only 1-2 thumbs (corners), ivy
     
-
+%     im_leaf_edges = (b_im_edges_horiz & im_clus_after_mid);
+    leaf = imfill(im_final_preprocessed, 'holes');
+    
     % harris corners on final preprocessed
-    corners = detectHarrisFeatures(im_clus_after_mid, 'MinQuality',0.3);
-    imagesc(im_clus_after_mid);
-    colormap("gray");
-    hold on;
-    plot(corners);
+%     corners = detectHarrisFeatures(im_clus_after_mid, 'MinQuality',0.3);
+%     imagesc(im_clus_after_mid);
+%     colormap("gray");
+%     hold on;
+%     plot(corners);
     % disclude the corners generated from the middle circle
-    num_corners = corners.Count - 6;
+%     num_corners = corners.Count - 6;
     % average number of corners among the 3 leaves
-    avg_corners = num_corners / 3 ;
+%     avg_corners = num_corners / 3 ;
     
-    if avg_corners > 7
-        fprintf("NOT POISON IVY\n");
-    else
-        fprintf("Poison Ivy detected!\n");
-    end
-
-
-    
-
+%     if avg_corners > 7
+%         fprintf("Large number of corners detected\n");
+%         class = false;
+%     else
+%         fprintf("Poison Ivy detected!\n");
+%         class = true;
+%     end
 
 end
