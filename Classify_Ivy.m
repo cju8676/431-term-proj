@@ -6,6 +6,28 @@ function class = Classify_Ivy( filename )
     addpath('./IMAGES_OTHER_PLANTS/');
     addpath('./IMAGES_of_POISON_IVY/');
 
+    % circle mask helper function
+    % calculates a circle in the middle of image im
+    % the radius of the circle is dependent on radius_factor which divides
+    % the full radius by a number to make the circle smaller
+    function mask = circle_mask( im, radius_factor )
+        
+        % [row dimension, column dimension]
+        dims = size(im);
+        % the pixel in the very center of the image [x, y]
+        center = round( dims( 1:2 ) / 2 );
+
+        % info of our circle [row location, col location, circle radius]
+        ci = [center(1), center(2), round(center(1) / radius_factor)]; 
+        % grid wrt our circle location
+        [x,y] = ndgrid( ( 1:dims(1) ) - ci(1),( 1:dims(2)) - ci(2) );
+        % get the pixels inside the circle radius ci(3)
+        mask = uint8((x.^2 + y.^2) < ci(3)^2);
+
+
+    end
+
+    
     % three channel subplot helper function
     function plot_three_channels( im )
 
@@ -25,79 +47,59 @@ function class = Classify_Ivy( filename )
 
     end
 
+    % KMEANS Helper function
+    % Perform KMeans Clustering on image im resulting in k clusters
+    % We will utilize HSV and CIELAB* color spaces to assist us in finding
+    % the leaf well
     function [cluster_id, centers] = do_kmeans( im, k )
 
         % row vectors, column vectors of our image - tells us where a pixel is
-        [xs, ys] = meshgrid( 1:s_dims(1), 1:s_dims(2) );
+        % [xs, ys] = meshgrid( 1:s_dims(1), 1:s_dims(2) );
         
         % Convert our image to CIELAB 
         im_lab = rgb2lab( im );
     
-        % Store luminance, a*, and b* values to be used for k-means
+        % Extract luminance, a*, and b* LAB channels
         lum = im_lab(:,:,1);
         a_star = im_lab(:,:,2);
         b_star = im_lab(:,:,3);
     
+        % Extract hue, saturation, and value HSV channels
         hsv = rgb2hsv( im );
         sat = hsv(:,:,2);
         val = hsv(:,:,3);
-%         plot_three_channels(hsv);
-%         plot_three_channels(im_lab);
-%         plot_three_channels(rgb2ycbcr(im));
-        ycbcr = rgb2ycbcr;
+
+        % Extract Cr value from YCbCr space that also seems to help well in
+        % isolating the leaf from its background
+        ycbcr = rgb2ycbcr(im);
         cr = ycbcr(:,:,3);
         
-        % Attributes input to k-means, space variables weighted by 1/15
-%         attributes = [xs(:)/10, ys(:)/10, lum(:), a_star(:), b_star(:)];
-%         if location_focused
-%             attributes = [a_star(:), val(:), sat(:)];
-%         else
+        % Attributes input to k-means, utilizing the channels from above as
+        % our input attributes
         attributes = [sat(:), val(:), lum(:), a_star(:), b_star(:), cr(:)];
-%         end
-        % Perform kmeans clustering on image
+
+        % Perform kmeans clustering on image returning k clusters
         [cluster_id, centers] = kmeans(attributes, k, 'MaxIter',250);
-    
 
     end
-
-    
-
-    
 
     % read in image
     im = ( imread( filename ) );
     
-    % [row dimension, column dimension]
-    dims = size(im);
-    % the pixel in the very center of the image [x, y]
-    center = round( dims( 1:2 ) / 2 );
-
-    % info of our circle [row location, col location, circle radius]
-    ci = [center(1), center(2), center(1)]; 
-    % grid wrt our circle location
-    [xx,yy] = ndgrid( ( 1:dims(1) ) - ci(1),( 1:dims(2)) - ci(2) );
-    % get the pixels inside the circle radius ci(3)
-    mask = uint8((xx.^2 + yy.^2) < ci(3)^2);
+    mask = circle_mask(im, 1);
     im_leaf_center = uint8(zeros(size(im)));
     % mask each of our rgb channels
     im_leaf_center(:,:,1) = im(:,:,1).*mask;
     im_leaf_center(:,:,2) = im(:,:,2).*mask;
     im_leaf_center(:,:,3) = im(:,:,3).*mask;
-%     figure;
-%     imagesc(im_leaf_center);
 
-% kmeans takes way too long on the full resolution image
+    % kmeans takes way too long on the full resolution image
     im_smaller = im_leaf_center( 3:3:end, 3:3:end, : );
-    
 
-    
-
+    % add 75% more saturation to image
     im_smaller_hsv = rgb2hsv(im_smaller);
-    % 75% more saturation:
     im_smaller_hsv(:, :, 2) = im_smaller_hsv(:, :, 2) * 1.75;
     im_smaller_sat = hsv2rgb(im_smaller_hsv);
-%     figure;
-%     imagesc(im_smaller_sat);
     
     % unsharp masking filter - enhance sharpness of leaf vs. blur before we
     % go looking for strong edges
@@ -113,38 +115,27 @@ function class = Classify_Ivy( filename )
     % image a* - we want to find significant edges in this domain
     im_sat_lab = rgb2lab(im_sat_sharp);
     im_sat_a = im_sat_lab(:,:,2);
-%     figure;
-%     imagesc(im_sat_sharp);
-%     imagesc(im_sat_a);
+
+    % calculate edge strengths 
     dIdy = imfilter( im_sat_a, fltr_dIdy, 'same', 'repl' );
     dIdx = imfilter( im_sat_a, fltr_dIdy.', 'same', 'replicate');
     dImag           = sqrt( dIdy.^2  + dIdx.^2 );
-%     figure;
-%     imagesc(dIdx);
-%     imagesc(dIdy);
-%     imagesc(dImag);
-%     dIangle         = atan2( -dIdy, dIdx ) * 180 / pi;
 
+    % extract edges stronger than 3 in the x and y direction
+    im_edges = ( dIdy         < -1 ) | ( dIdx < -1);
+    im_edges = ( dImag > 3 );
 
-
-    b_im_edges_horiz     = ( dIdy         < -1 ) | ( dIdx < -1);
-    b_im_edges_horiz = ( dImag > 3 );
-%     imagesc(b_im_edges_horiz);
-    b_dil = imdilate(b_im_edges_horiz, strel('disk', 7));
-    b_fill = imfill(b_dil, 'holes');
-    b_fill = imdilate(b_fill, strel('disk', 5));
-%     figure;
-%     imagesc(b_fill);
-    im_cropped_sat = im_smaller_sat.*repmat(b_fill,[1,1,3]);
+%     b_dil = imdilate(im_edges, strel('disk', 7));
+%     b_fill = imfill(b_dil, 'holes');
+%     b_fill = imdilate(b_fill, strel('disk', 5));
+%     im_cropped_sat = im_smaller_sat.*repmat(b_fill,[1,1,3]);
     
+    % perform kmeans on our current processed image
     [cluster_id, centers] = do_kmeans( im_sat_sharp, 7 );
     centers_colors = lab2rgb(centers(:,3:5));
-    diiims = size( im_sat_sharp );
-    im_new = reshape(cluster_id, diiims(1), diiims(2));
-%     figure;
-%     imagesc(im_new);
-        
-    %     colormap(centers_colors);
+    q_dims = size( im_sat_sharp );
+    im_new = reshape(cluster_id, q_dims(1), q_dims(2)); 
+    % colormap(centers_colors);
     
 
     % get all clusters with a* significantly negative
@@ -176,15 +167,8 @@ function class = Classify_Ivy( filename )
         return;
     end
 
-    % for now get the cluster with the highest green value
-    % this == lowest a* valued cluster
-    % centers colors is an array of clusters with rows
-    % being [ x y lum a* b* ]
-%         most_green = min(centers(:, 4));
-%         [most_row, ~] = find(centers == most_green);
+    % our new im mask is the most significant green cluster
     im_new_leaf = (im_new == green_cluster);
-%         [rgb_max, rgb_idx] = max(centers_colors);
-%         im_new_leaf = (im_new == rgb_idx(2));
     
     % Disk structuring element
     disk = strel('disk', 5);
@@ -194,74 +178,53 @@ function class = Classify_Ivy( filename )
     im_final_morph = imerode(im_dilate_leaf, disk);
     % Label and get number of our different blobs - 4 pixel connectivity
     [L, n] = bwlabel(im_final_morph, 4);
-%     display(n);
     
     im_final_preprocessed = zeros(size(im_final_morph));
     % loop through discovered blobs
     for d = 1 : n
         
         this_blob = (L == d);
-        
         stats = regionprops(this_blob, 'all');
-%             display(stats);
         if stats.Area < 10000
             continue;
         end
-%         display(stats);
+
         % BoundingBox = [left, top, width height]
         % blob_wid = stats.BoundingBox(3);
         % blob_hei = stats.BoundingBox(4);
         
         im_final_preprocessed = im_final_preprocessed | this_blob;
-%         imagesc(this_blob);
+
     end
+    % display our fully preprocessed leaves
     figure;
     imagesc(im_final_preprocessed);
     title(filename);
     colormap('gray');
-%     leaf = im_smaller_sat.*repmat(imfill(im_final_preprocessed, 'holes'), [1, 1, 3]);
-%     [cl, ce] = do_kmeans(leaf, 3, true);
-%     im_new = reshape(cl, diiims(1), diiims(2));
-%     figure;
-%     imagesc(im_new);
 
-    % ___________________________end of preprocessing
+    % ---- end of preprocessing ---- beginning of classifying ----
     
-    % separate 
-    dims_pre = size(im_final_preprocessed);
-    % the pixel in the very center of the image [x, y]
-    center_pre = round( dims_pre( 1:2 ) / 2 );
-    % ci = center[row location, col location, radius]; 
-    small_ci = [center_pre(1), center_pre(2), round(center_pre(1)/2.5)];
-    % grid wrt our circle location
-    [smallx,smally] = ndgrid( ( 1:dims_pre(1) ) - small_ci(1),( 1:dims_pre(2)) - small_ci(2) );
-    % get the pixels inside the circle radius ci(3)
-    mask = ~uint8((smallx.^2 + smally.^2) < small_ci(3)^2);
+    % separate leaves by performing a circle mask in the center of the
+    % image
+    mask = ~circle_mask(im_final_preprocessed, 2.5);
     im_sep_middle = (zeros(size(im_final_preprocessed)));
-    % mask 
+    % apply the mask to our im_final_pre blob
     im_sep_middle(:,:) = im_final_preprocessed(:,:).*mask;
-    
-%     figure;
-%     imagesc(im_sep_middle);
 
     % once again pick apart clusters and discard any small area clusters
     % like stems
     [clus, num] = bwlabel(im_sep_middle, 4);
     im_clus_after_mid = zeros(size(im_final_preprocessed));
-%     figure;
     for d = 1 : num
         this_clus = (clus == d);
-%         imagesc(this_clus);
         stats = regionprops(this_clus, 'all');
-%         display(stats);
-%         pause(2);
         if stats.Area < 12000
             continue
         end
         im_clus_after_mid = im_clus_after_mid | this_clus;
     end
-    imagesc(im_clus_after_mid);
-    % if 
+
+    % if we are left with 3 leaves, it is most likely poision ivy
     [leaf_clus, final_num_leaves] = bwlabel(im_clus_after_mid, 4);
     if final_num_leaves ~= 3
 %         fprintf("Not 3 Leaves = NOT POISON IVY!\n");
