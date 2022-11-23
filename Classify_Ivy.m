@@ -202,10 +202,10 @@ function class = Classify_Ivy( filename )
 
     end
     % display our fully preprocessed leaves
-    figure;
-    imagesc(im_final_preprocessed);
-    title(filename);
-    colormap('gray');
+    %figure;
+    %imagesc(im_final_preprocessed);
+    %title(filename);
+    %colormap('gray');
 
     % ---- end of preprocessing ---- beginning of classifying ----
     
@@ -234,50 +234,60 @@ function class = Classify_Ivy( filename )
     im_skel = bwmorph(leaf, 'skel', Inf);
     im_skel(:,:) = im_skel(:,:).*~circle_mask(im_final_preprocessed, 5);
     [skel_clus, skel_num] = bwlabel(im_skel, 8);
-    imagesc(im_skel);
 
-    % count how many skel we have
+    % count how many leaves we have based on how many skeletons we have
     skel_count = 0;
     for d = 1 : skel_num
         this_clus = (skel_clus == d);
         stats = regionprops(this_clus, 'all');
-        display(stats);
         if stats.Area < 300
             continue
         end
         skel_count = skel_count + 1;
     end
-    if skel_count ~= 3
-        fprintf("Not 3 Leaves = NOT POISON IVY!\n");
-        class = false;
-        return;
-    else
-        fprintf("3 leaves detected.\n");
-        class = true;
-    end
 
     % if each leaf has only 1-2 thumbs (corners), ivy
     
-%     im_leaf_edges = (b_im_edges_horiz & im_clus_after_mid);
+    im_leaf_edges = (imdilate(leaf, strel('disk', 10)) & im_edges);
+    [edge_clus, edge_num] = bwlabel(im_leaf_edges, 8);
+    im_edges_final = zeros(size(im_leaf_edges));
+    for d = 1 : edge_num
+        this_edge = (edge_clus == d);
+        stats = regionprops(this_edge, 'Area');
+        if stats.Area < 500
+            continue
+        end
+        im_edges_final = im_edges_final | this_edge;
+    end
+    im_edges_final = imclose(im_edges_final, disk);
+    % figure;
+    % imagesc(im_edges_final);
+    corners = detectHarrisFeatures(im_edges_final, "MinQuality", 0.4);
+    %corners1 = detectHarrisFeatures(im_edges_final, "MinQuality", 0.5);
+    %corners2 = detectHarrisFeatures(im_edges_final, "MinQuality", 0.6);
+    %hold on;
+    %plot(corners);
+    %colormap("gray");
+    %fprintf("-- %d %d %d ===", corners.Count, corners1.Count, corners2.Count);
     
-    imagesc(leaf);
-    % harris corners on final preprocessed
-%     corners = detectHarrisFeatures(im_clus_after_mid, 'MinQuality',0.3);
-%     imagesc(im_clus_after_mid);
-%     colormap("gray");
-%     hold on;
-%     plot(corners);
-    % disclude the corners generated from the middle circle
-%     num_corners = corners.Count - 6;
-    % average number of corners among the 3 leaves
-%     avg_corners = num_corners / 3 ;
-    
-%     if avg_corners > 7
-%         fprintf("Large number of corners detected\n");
-%         class = false;
-%     else
-%         fprintf("Poison Ivy detected!\n");
-%         class = true;
-%     end
+    % here perform sort of a custom mahalanobis calculation..
+    % mean corners we got from all IVY training data is ~40 with a standard
+    % deviation of ~20.
+    % therefore if corners is within 2 std dev of the mean 70, we will
+    % classify this plant as IVY
+    % this is also a good risk management indicator in case we are unsure
+    % we want to be safe and be somewhere around this criteria
 
+    % all in all HERE IS OUR CLASSIFIER - we also add risk management to
+    % the leaf count, if it is in the ballpark of 3 we will say it is
+    % poison ivy otherwise it is not - err on the side of caution!!!!
+    % if it is out of both ballparks it is false
+    if ( skel_count < 2 ) || ( skel_count > 4 )
+        class = false;
+    elseif ( ( corners.Count < 40 ) || ( corners.Count > 110 ) ) %&& ...
+           %( ( skel_count < 2 ) || ( skel_count > 4 ) )
+        class = false;
+    else
+        class = true;
+    end
 end
